@@ -57,4 +57,30 @@ public static class GameInput
         return Input.GetKeyDown(KeyCode.Escape) || Input.GetKeyDown(KeyCode.P);
 #endif
     }
+
+    // R = go back to the last checkpoint.
+    public static bool RespawnPressed()
+    {
+#if ENABLE_INPUT_SYSTEM
+        Keyboard k = Keyboard.current;
+        if (k != null && k.rKey.wasPressedThisFrame)
+            return true;
+
+        Gamepad g = Gamepad.current;
+        return g != null && g.buttonWest.wasPressedThisFrame;
+#else
+        return Input.GetKeyDown(KeyCode.R);
+#endif
+    }
+
+    // M = mute / unmute the music.
+    public static bool MutePressed()
+    {
+#if ENABLE_INPUT_SYSTEM
+        Keyboard k = Keyboard.current;
+        return k != null && k.mKey.wasPressedThisFrame;
+#else
+        return Input.GetKeyDown(KeyCode.M);
+#endif
+    }
 }

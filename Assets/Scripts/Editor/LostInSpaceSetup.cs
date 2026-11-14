@@ -36,6 +36,17 @@ public static class LostInSpaceSetup
 
     static readonly Color SpaceColor = new Color(0.04f, 0.03f, 0.12f);
     static readonly Color ButtonColor = new Color(0.25f, 0.22f, 0.45f);
+    static readonly Color HazardColor = new Color(1f, 0.25f, 0.3f);
+    static readonly Color CheckpointColor = new Color(1f, 0.85f, 0.2f);
+
+    // The astronaut art is a 3200x3200 image with a ~46x78 unit figure in the middle (16 px per unit).
+    // At scale 0.02 the figure is about 0.9 wide and 1.5 tall - the size the levels were laid out for.
+    const float PlayerScale = 0.02f;
+    static readonly Vector2 PlayerColliderSize = new Vector2(34f, 74f);
+    static readonly Vector2 PlayerColliderOffset = new Vector2(-1f, -24f);
+    const float PlayerFeetBelowPivot = 1.22f;   // (24 + 74/2) * 0.02, minus a hair
+    const float PlayerMoveSpeed = 6f;
+    const float PlayerJumpForce = 16f;          // lets the player reach every platform in all 10 levels
 
     static readonly List<string> report = new List<string>();
     static PhysicsMaterial2D noFriction;
@@ -128,7 +139,8 @@ public static class LostInSpaceSetup
 
         // Remove generated objects so running the tool again never duplicates them.
         foreach (GameObject go in AllObjects(scene))
-            if (go != null && (go.name == "HUD Canvas" || go.name == "Kill Zone"))
+            if (go != null && (go.name == "HUD Canvas" || go.name == "Kill Zone" ||
+                               go.name.StartsWith("Patrol ") || go.name == "Auto Checkpoint"))
                 Object.DestroyImmediate(go);
 
         List<GameObject> all = AllObjects(scene);
@@ -137,8 +149,8 @@ public static class LostInSpaceSetup
         GameObject player = all.FirstOrDefault(g => g.CompareTag("Player"));
         if (player == null)
         {
-            var pc = Object.FindFirstObjectByType<PlayerController>();
-            if (pc != null) player = pc.gameObject;
+            var existingPc = Object.FindFirstObjectByType<PlayerController>();
+            if (existingPc != null) player = existingPc.gameObject;
         }
         if (player == null)
         {
@@ -166,12 +178,25 @@ public static class LostInSpaceSetup
         rb.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
         rb.interpolation = RigidbodyInterpolation2D.Interpolate;
 
-        Collider2D playerCol = player.GetComponent<Collider2D>();
-        if (playerCol == null) playerCol = ObjectFactory.AddComponent<BoxCollider2D>(player);
-        playerCol.isTrigger = false;
-        playerCol.sharedMaterial = noFriction;
+        FixPlayerSizeAndCollider(player);
 
-        Ensure<PlayerController>(player);
+        PlayerController pc = Ensure<PlayerController>(player);
+        pc.moveSpeed = PlayerMoveSpeed;
+        pc.jumpForce = PlayerJumpForce;
+
+        // Start the player on the first (left-most) platform.
+        List<GameObject> platforms = Named(all, player, "Platform").Where(g => g.name.Length >= 8).ToList();
+        GameObject firstPlatform = platforms.OrderBy(g => g.transform.position.x - g.transform.lossyScale.x * 0.5f).FirstOrDefault();
+        if (firstPlatform != null)
+        {
+            Vector3 p = firstPlatform.transform.position;
+            Vector3 s = firstPlatform.transform.lossyScale;
+            player.transform.position = new Vector3(p.x - s.x * 0.5f + 1.2f, p.y + s.y * 0.5f + PlayerFeetBelowPivot + 0.05f, 0f);
+        }
+        else
+        {
+            report.Add(tag + "no objects named 'Platform...' found - left the player where it was.");
+        }
 
         // ---- Camera
         Camera cam = Camera.main;
@@ -230,6 +255,9 @@ public static class LostInSpaceSetup
         if (Object.FindFirstObjectByType<DoorController>() == null) report.Add(tag + "no object named 'Door...' found.");
         if (Object.FindFirstObjectByType<ExitShip>() == null) report.Add(tag + "no object named 'Spaceship...' - the level can't be finished.");
 
+        // ---- Checkpoint + patrolling hazards (more hazards in later levels)
+        AddCheckpointAndHazards(all, player, firstPlatform, platforms, levelNumber);
+
         // ---- Managers
         var existingGm = Object.FindFirstObjectByType<GameManager>();
         GameObject managers = existingGm != null ? existingGm.gameObject : new GameObject("Managers");
@@ -256,6 +284,158 @@ public static class LostInSpaceSetup
 
         EditorSceneManager.MarkSceneDirty(scene);
         EditorSceneManager.SaveScene(scene);
+    }
+
+    // Shrinks the (huge) astronaut art to level scale and gives it a collider that matches the figure.
+    static void FixPlayerSizeAndCollider(GameObject player)
+    {
+        var sr = player.GetComponent<SpriteRenderer>();
+        bool hugeArt = sr != null && sr.sprite != null && sr.sprite.rect.width > 1000f;
+
+        if (hugeArt)
+        {
+            player.transform.localScale = new Vector3(PlayerScale, PlayerScale, 1f);
+            sr.sortingOrder = Mathf.Max(sr.sortingOrder, 5);
+        }
+
+        BoxCollider2D box = player.GetComponent<BoxCollider2D>();
+        if (box == null)
+        {
+            foreach (Collider2D old in player.GetComponents<Collider2D>())
+                Object.DestroyImmediate(old);
+            box = ObjectFactory.AddComponent<BoxCollider2D>(player);
+        }
+
+        if (hugeArt)
+        {
+            box.size = PlayerColliderSize;
+            box.offset = PlayerColliderOffset;
+        }
+
+        box.isTrigger = false;
+        box.sharedMaterial = noFriction;
+    }
+
+    static GameObject MakeSquare(string name, Vector2 pos, Vector2 scale, Color color, Sprite sprite, float rotationZ = 0f)
+    {
+        var go = new GameObject(name);
+        go.transform.position = pos;
+        go.transform.rotation = Quaternion.Euler(0f, 0f, rotationZ);
+        go.transform.localScale = new Vector3(scale.x, scale.y, 1f);
+        var sr = go.AddComponent<SpriteRenderer>();
+        sr.sprite = sprite;
+        sr.color = color;
+        sr.sortingOrder = 3;
+        var col = ObjectFactory.AddComponent<BoxCollider2D>(go);
+        col.isTrigger = true;
+        return go;
+    }
+
+    static void MakePatrolHazard(string name, Vector2 a, Vector2 b, float speed, Sprite sprite)
+    {
+        var pointA = new GameObject("Patrol Point " + name + " A");
+        pointA.transform.position = a;
+        var pointB = new GameObject("Patrol Point " + name + " B");
+        pointB.transform.position = b;
+
+        GameObject hazard = MakeSquare("Patrol " + name, a, new Vector2(0.55f, 0.55f), HazardColor, sprite, 45f);
+        var mh = hazard.AddComponent<MovingHazard>();
+        mh.pointA = pointA.transform;
+        mh.pointB = pointB.transform;
+        mh.speed = speed;
+    }
+
+    static void AddCheckpointAndHazards(List<GameObject> all, GameObject player, GameObject firstPlatform,
+                                        List<GameObject> platforms, int level)
+    {
+        // Use an existing square sprite from the level for the new objects.
+        GameObject ground = all.FirstOrDefault(g => g != null && g.name == "Ground");
+        SpriteRenderer template = (ground != null ? ground : firstPlatform) != null
+            ? (ground != null ? ground : firstPlatform).GetComponent<SpriteRenderer>()
+            : null;
+        if (template == null || template.sprite == null) return;
+        Sprite sprite = template.sprite;
+
+        GameObject ship = Named(all, player, "Spaceship", "ExitShip").FirstOrDefault();
+        GameObject door = Named(all, player, "Door").FirstOrDefault();
+
+        float spawnX = player.transform.position.x;
+        float shipX = ship != null ? ship.transform.position.x : spawnX + 40f;
+
+        // Platforms other than the one the player starts on.
+        var others = platforms.Where(g => g != firstPlatform).ToList();
+
+        // Which platforms hold a bounce pad or the switch? (keep patrol hazards off those)
+        var busy = new HashSet<GameObject>();
+        foreach (GameObject pl in others)
+        {
+            foreach (GameObject item in Named(all, player, "BouncePad", "Switch"))
+            {
+                Vector3 pp = pl.transform.position, ps = pl.transform.lossyScale, ip = item.transform.position;
+                bool overX = Mathf.Abs(ip.x - pp.x) <= ps.x * 0.5f + 0.5f;
+                bool overY = ip.y > pp.y && ip.y < pp.y + ps.y * 0.5f + 1.2f;
+                if (overX && overY) busy.Add(pl);
+            }
+        }
+
+        // ---- Checkpoint: on the platform closest to the middle of the route.
+        GameObject checkpointPlatform = null;
+        if (Named(all, player, "Checkpoint").Count == 0 && others.Count > 0)
+        {
+            float midX = (spawnX + shipX) * 0.5f;
+            checkpointPlatform = others.OrderBy(g => Mathf.Abs(g.transform.position.x - midX)).First();
+
+            Vector3 p = checkpointPlatform.transform.position;
+            Vector3 s = checkpointPlatform.transform.lossyScale;
+            float top = p.y + s.y * 0.5f;
+            var cp = MakeSquare("Auto Checkpoint", new Vector2(p.x + s.x * 0.5f - 0.4f, top + 0.6f),
+                new Vector2(0.25f, 1.2f), CheckpointColor, sprite);
+            cp.AddComponent<Checkpoint>();
+        }
+
+        // ---- Hazards. Level 1-2: none. Then a few more every two levels.
+        float speed = 2f + 0.25f * level;
+
+        // Ground patrol hazards: punish falling off the platforms.
+        int groundCount = level < 3 ? 0 : Mathf.Min(1 + (level - 3) / 2, 4);
+        if (groundCount > 0 && ground != null && firstPlatform != null)
+        {
+            float groundTop = ground.transform.position.y + ground.transform.lossyScale.y * 0.5f;
+            float xStart = firstPlatform.transform.position.x + firstPlatform.transform.lossyScale.x * 0.5f + 1.5f;
+            float xEnd = door != null ? door.transform.position.x - 3f : shipX - 8f;
+
+            if (xEnd - xStart > 3f * groundCount)
+            {
+                float segment = (xEnd - xStart) / groundCount;
+                for (int i = 0; i < groundCount; i++)
+                {
+                    float x0 = xStart + segment * i + 0.4f;
+                    float x1 = xStart + segment * (i + 1) - 0.4f;
+                    MakePatrolHazard("Hazard " + (i + 1), new Vector2(x0, groundTop + 0.4f), new Vector2(x1, groundTop + 0.4f), speed, sprite);
+                }
+            }
+        }
+
+        // Platform hazards from level 5: a small hazard patrolling a platform you must hop over.
+        int platformCount = level < 5 ? 0 : (level < 8 ? 1 : 2);
+        if (platformCount > 0)
+        {
+            var eligible = others.Where(g => g != checkpointPlatform && !busy.Contains(g))
+                                 .OrderByDescending(g => g.transform.lossyScale.x)
+                                 .Take(platformCount)
+                                 .ToList();
+            int n = 1;
+            foreach (GameObject pl in eligible)
+            {
+                Vector3 p = pl.transform.position;
+                Vector3 s = pl.transform.lossyScale;
+                float top = p.y + s.y * 0.5f;
+                MakePatrolHazard("Platform Hazard " + n++,
+                    new Vector2(p.x - s.x * 0.5f + 0.6f, top + 0.3f),
+                    new Vector2(p.x + s.x * 0.5f - 0.6f, top + 0.3f),
+                    Mathf.Min(speed, 3.5f), sprite);
+            }
+        }
     }
 
     static void AddKillZone()
@@ -288,6 +468,10 @@ public static class LostInSpaceSetup
             new Vector2(0, 1), new Vector2(30, -80), new Vector2(1500, 60), TextAlignmentOptions.TopLeft);
         MakeText(canvas.transform, "Level Text", "Level " + levelNumber + " / " + LevelScenes.Length, 40,
             new Vector2(1, 1), new Vector2(-30, -20), new Vector2(600, 60), TextAlignmentOptions.TopRight);
+        ui.timeText = MakeText(canvas.transform, "Time Text", "Time: 0.0s", 36,
+            new Vector2(1, 1), new Vector2(-30, -75), new Vector2(600, 60), TextAlignmentOptions.TopRight);
+        MakeText(canvas.transform, "Controls Hint", "A/D move   Space jump   R respawn   M music   Esc pause", 28,
+            new Vector2(0, 0), new Vector2(30, 20), new Vector2(1400, 50), TextAlignmentOptions.BottomLeft);
 
         var loader = canvas.gameObject.AddComponent<SceneLoader>();
 
@@ -295,7 +479,9 @@ public static class LostInSpaceSetup
         var win = canvas.gameObject.AddComponent<WinScreen>();
         GameObject winPanel = MakePanel(canvas.transform, "Win Panel", new Color(0f, 0f, 0f, 0.8f));
         MakeText(winPanel.transform, "Title", isLastLevel ? "MISSION COMPLETE!" : "LEVEL COMPLETE!", 90,
-            new Vector2(0.5f, 0.5f), new Vector2(0, 200), new Vector2(1400, 140), TextAlignmentOptions.Center);
+            new Vector2(0.5f, 0.5f), new Vector2(0, 260), new Vector2(1400, 140), TextAlignmentOptions.Center);
+        win.statsText = MakeText(winPanel.transform, "Stats", "", 44,
+            new Vector2(0.5f, 0.5f), new Vector2(0, 160), new Vector2(1400, 70), TextAlignmentOptions.Center);
         Button next = MakeButton(winPanel.transform, "Next Button", isLastLevel ? "Continue" : "Next Level", new Vector2(0, 40));
         Button again = MakeButton(winPanel.transform, "Replay Button", "Replay Level", new Vector2(0, -70));
         Button menu = MakeButton(winPanel.transform, "Menu Button", "Main Menu", new Vector2(0, -180));
@@ -384,7 +570,9 @@ public static class LostInSpaceSetup
             "LOST IN SPACE\n\nA platformer made in Unity\n\nThanks for playing!", 50,
             new Vector2(0.5f, 0.5f), new Vector2(0, 40), new Vector2(1400, 420), TextAlignmentOptions.Center);
 
-        Button menu = MakeButton(canvas.transform, "Menu Button", "Main Menu", new Vector2(0, -300));
+        Button again = MakeButton(canvas.transform, "Play Again Button", "Play Again", new Vector2(-240, -300));
+        Button menu = MakeButton(canvas.transform, "Menu Button", "Main Menu", new Vector2(240, -300));
+        UnityEventTools.AddStringPersistentListener(again.onClick, new UnityAction<string>(loader.Load), "MainLevel");
         UnityEventTools.AddStringPersistentListener(menu.onClick, new UnityAction<string>(loader.Load), "MainMenu");
 
         EditorSceneManager.SaveScene(scene, SceneFolder + "/Credits.unity");

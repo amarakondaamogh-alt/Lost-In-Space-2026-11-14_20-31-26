@@ -22,6 +22,13 @@ public class RespawnManager : MonoBehaviour
             Debug.LogWarning("RespawnManager: no object tagged 'Player' found in this scene.");
     }
 
+    private void Update()
+    {
+        // Press R any time to go back to the last checkpoint (handy if you get stuck).
+        if (Time.timeScale > 0f && GameInput.RespawnPressed())
+            Respawn();
+    }
+
     public void SetCheckpoint(Vector3 position)
     {
         checkpointPosition = position;

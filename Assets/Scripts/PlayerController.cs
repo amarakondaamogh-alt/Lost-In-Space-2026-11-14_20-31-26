@@ -4,7 +4,7 @@ public class PlayerController : MonoBehaviour
 {
     [Header("Movement")]
     public float moveSpeed = 6f;
-    public float jumpForce = 12f;
+    public float jumpForce = 16f;
 
     private Rigidbody2D rb;
     private SpriteRenderer spriteRenderer;

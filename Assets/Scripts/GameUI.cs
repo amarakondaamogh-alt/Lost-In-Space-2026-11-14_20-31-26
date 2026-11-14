@@ -5,6 +5,7 @@ public class GameUI : MonoBehaviour
 {
     public TMP_Text crystalText;
     public TMP_Text objectiveText;
+    public TMP_Text timeText;
 
     private void Start()
     {
@@ -12,6 +13,12 @@ public class GameUI : MonoBehaviour
 
         GameManager.Instance.OnProgressChanged += UpdateUI;
         UpdateUI();
+    }
+
+    private void Update()
+    {
+        if (timeText != null && GameManager.Instance != null)
+            timeText.text = "Time: " + GameManager.Instance.levelTime.ToString("0.0") + "s";
     }
 
     private void UpdateUI()
