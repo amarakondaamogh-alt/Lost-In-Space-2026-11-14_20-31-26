@@ -6,14 +6,14 @@ using UnityEngine;
 public class MusicManager : MonoBehaviour
 {
     public AudioSource musicSource;
-    [Range(0f, 1f)] public float volume = 0.3f;
+    [Range(0f, 1f)] public float volume = 0.5f;
 
     private static MusicManager instance;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void Boot()
     {
-        if (instance != null || FindFirstObjectByType<MusicManager>() != null) return;
+        if (instance != null || FindAnyObjectByType<MusicManager>() != null) return;
 
         var go = new GameObject("Music Manager");
         go.AddComponent<MusicManager>();
@@ -45,6 +45,9 @@ public class MusicManager : MonoBehaviour
         musicSource.playOnAwake = false;
         musicSource.volume = volume;
 
+        // Your song: Assets/Audio/Music/Resources/SpaceCadet.mp3. Falls back to the built-in tune if it's missing.
+        if (musicSource.clip == null)
+            musicSource.clip = Resources.Load<AudioClip>("SpaceCadet");
         if (musicSource.clip == null)
             musicSource.clip = ProceduralAudio.Music();
 

@@ -90,6 +90,8 @@ public static class LostInSpaceSetup
         try
         {
             noFriction = GetNoFrictionMaterial();
+            crystalSprite = LoadCrystalSprite();
+            UpdateCrystalPrefab();
 
             for (int i = 0; i < LevelScenes.Length; i++)
             {
@@ -149,7 +151,7 @@ public static class LostInSpaceSetup
         GameObject player = all.FirstOrDefault(g => g.CompareTag("Player"));
         if (player == null)
         {
-            var existingPc = Object.FindFirstObjectByType<PlayerController>();
+            var existingPc = Object.FindAnyObjectByType<PlayerController>();
             if (existingPc != null) player = existingPc.gameObject;
         }
         if (player == null)
@@ -200,7 +202,7 @@ public static class LostInSpaceSetup
 
         // ---- Camera
         Camera cam = Camera.main;
-        if (cam == null) cam = Object.FindFirstObjectByType<Camera>();
+        if (cam == null) cam = Object.FindAnyObjectByType<Camera>();
         if (cam != null)
         {
             var follow = Ensure<CameraFollow>(cam.gameObject);
@@ -217,6 +219,7 @@ public static class LostInSpaceSetup
         {
             Ensure<Crystal>(go);
             SetCollider(go, true);
+            ApplyCrystalLook(go);
         }
         foreach (GameObject go in Named(all, player, "Switch"))
         {
@@ -249,23 +252,23 @@ public static class LostInSpaceSetup
             SetCollider(go, true);
         }
 
-        int crystalCount = Object.FindObjectsByType<Crystal>(FindObjectsInactive.Include, FindObjectsSortMode.None).Length;
+        int crystalCount = Object.FindObjectsByType<Crystal>(FindObjectsInactive.Include).Length;
         if (crystalCount == 0) report.Add(tag + "no objects named 'Crystal...' found.");
-        if (Object.FindFirstObjectByType<PressureSwitch>() == null) report.Add(tag + "no object named 'Switch...' - the door can never unlock.");
-        if (Object.FindFirstObjectByType<DoorController>() == null) report.Add(tag + "no object named 'Door...' found.");
-        if (Object.FindFirstObjectByType<ExitShip>() == null) report.Add(tag + "no object named 'Spaceship...' - the level can't be finished.");
+        if (Object.FindAnyObjectByType<PressureSwitch>() == null) report.Add(tag + "no object named 'Switch...' - the door can never unlock.");
+        if (Object.FindAnyObjectByType<DoorController>() == null) report.Add(tag + "no object named 'Door...' found.");
+        if (Object.FindAnyObjectByType<ExitShip>() == null) report.Add(tag + "no object named 'Spaceship...' - the level can't be finished.");
 
         // ---- Checkpoint + patrolling hazards (more hazards in later levels)
         AddCheckpointAndHazards(all, player, firstPlatform, platforms, levelNumber);
 
         // ---- Managers
-        var existingGm = Object.FindFirstObjectByType<GameManager>();
+        var existingGm = Object.FindAnyObjectByType<GameManager>();
         GameObject managers = existingGm != null ? existingGm.gameObject : new GameObject("Managers");
         GameManager gm = existingGm != null ? existingGm : managers.AddComponent<GameManager>();
         if (crystalCount > 0) gm.crystalsRequired = crystalCount;
-        if (Object.FindFirstObjectByType<RespawnManager>() == null) managers.AddComponent<RespawnManager>();
+        if (Object.FindAnyObjectByType<RespawnManager>() == null) managers.AddComponent<RespawnManager>();
 
-        SoundManager sm = Object.FindFirstObjectByType<SoundManager>();
+        SoundManager sm = Object.FindAnyObjectByType<SoundManager>();
         if (sm == null) sm = managers.AddComponent<SoundManager>();
         if (sm.audioSource == null)
         {
@@ -279,7 +282,7 @@ public static class LostInSpaceSetup
         AddKillZone();
 
         // ---- UI
-        if (Object.FindFirstObjectByType<EventSystem>() == null) MakeEventSystem();
+        if (Object.FindAnyObjectByType<EventSystem>() == null) MakeEventSystem();
         BuildHud(gm, levelNumber, sceneName == LevelScenes[LevelScenes.Length - 1]);
 
         EditorSceneManager.MarkSceneDirty(scene);
@@ -393,11 +396,11 @@ public static class LostInSpaceSetup
             cp.AddComponent<Checkpoint>();
         }
 
-        // ---- Hazards. Level 1-2: none. Then a few more every two levels.
+        // ---- Hazards. Level 1: none (falling still resets you). Then more every two levels.
         float speed = 2f + 0.25f * level;
 
         // Ground patrol hazards: punish falling off the platforms.
-        int groundCount = level < 3 ? 0 : Mathf.Min(1 + (level - 3) / 2, 4);
+        int groundCount = level < 2 ? 0 : Mathf.Min(1 + (level - 2) / 2, 4);
         if (groundCount > 0 && ground != null && firstPlatform != null)
         {
             float groundTop = ground.transform.position.y + ground.transform.lossyScale.y * 0.5f;
@@ -440,7 +443,7 @@ public static class LostInSpaceSetup
 
     static void AddKillZone()
     {
-        var renderers = Object.FindObjectsByType<SpriteRenderer>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        var renderers = Object.FindObjectsByType<SpriteRenderer>(FindObjectsInactive.Include);
         float minY = 0f, minX = 0f, maxX = 0f;
         if (renderers.Length > 0)
         {
@@ -522,7 +525,7 @@ public static class LostInSpaceSetup
 
         MakeText(canvas.transform, "Title", "LOST IN SPACE", 120,
             new Vector2(0.5f, 0.5f), new Vector2(0, 250), new Vector2(1600, 180), TextAlignmentOptions.Center);
-        MakeText(canvas.transform, "Subtitle", "Find your way back to your spaceship", 40,
+        MakeText(canvas.transform, "Subtitle", "Beat every level to make it back to Earth", 40,
             new Vector2(0.5f, 0.5f), new Vector2(0, 130), new Vector2(1400, 80), TextAlignmentOptions.Center);
 
         Button play = MakeButton(canvas.transform, "Play Button", "Play", new Vector2(0, -20));
@@ -541,9 +544,9 @@ public static class LostInSpaceSetup
         MakeEventSystem();
         var loader = canvas.gameObject.AddComponent<SceneLoader>();
 
-        MakeText(canvas.transform, "Title", "YOU MADE IT HOME!", 110,
+        MakeText(canvas.transform, "Title", "You made it back to Earth!", 100,
             new Vector2(0.5f, 0.5f), new Vector2(0, 250), new Vector2(1700, 170), TextAlignmentOptions.Center);
-        MakeText(canvas.transform, "Subtitle", "All 10 levels complete. Mission accomplished!", 44,
+        MakeText(canvas.transform, "Subtitle", "All 10 levels complete. Welcome home, astronaut!", 44,
             new Vector2(0.5f, 0.5f), new Vector2(0, 130), new Vector2(1500, 80), TextAlignmentOptions.Center);
 
         Button credits = MakeButton(canvas.transform, "Credits Button", "Credits", new Vector2(0, -10));
@@ -578,16 +581,39 @@ public static class LostInSpaceSetup
         EditorSceneManager.SaveScene(scene, SceneFolder + "/Credits.unity");
     }
 
-    static void SetBuildSettings()
+    // Menu -> 10 levels -> "back to Earth" screen -> Credits.
+    static string[] BuildOrderPaths()
     {
         var order = new List<string> { "MainMenu" };
         order.AddRange(LevelScenes);
         order.Add("WinScene");
         order.Add("Credits");
+        return order.Select(n => SceneFolder + "/" + n + ".unity").ToArray();
+    }
 
-        EditorBuildSettings.scenes = order
-            .Select(n => new EditorBuildSettingsScene(SceneFolder + "/" + n + ".unity", true))
+    static void SetBuildSettings()
+    {
+        EditorBuildSettings.scenes = BuildOrderPaths()
+            .Select(p => new EditorBuildSettingsScene(p, true))
             .ToArray();
+    }
+
+    // Runs every time Unity reloads scripts: puts the scenes in Build Settings in the
+    // right order if they aren't already, so nobody has to drag them in by hand.
+    [InitializeOnLoadMethod]
+    static void AutoFixBuildSettings()
+    {
+        EditorApplication.delayCall += () =>
+        {
+            string[] wanted = BuildOrderPaths();
+            if (wanted.Any(p => !File.Exists(p))) return;
+
+            string[] current = EditorBuildSettings.scenes.Where(s => s.enabled).Select(s => s.path).ToArray();
+            if (current.SequenceEqual(wanted)) return;
+
+            SetBuildSettings();
+            Debug.Log("[Lost in Space] Build Settings updated: MainMenu, 10 levels, WinScene, Credits.");
+        };
     }
 
     // ---------------------------------------------------------------- helpers
@@ -603,6 +629,62 @@ public static class LostInSpaceSetup
             AssetDatabase.SaveAssets();
         }
         return mat;
+    }
+
+    // ---- Crystal art (Assets/Sprites/Crystal.png)
+
+    static Sprite crystalSprite;
+
+    static Sprite LoadCrystalSprite()
+    {
+        string path = CrystalSpriteImporter.CrystalSpritePath;
+        if (!File.Exists(path)) return null;
+
+        // Re-import so the pixel-art settings in CrystalSpriteImporter are applied.
+        AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
+        Sprite s = AssetDatabase.LoadAssetAtPath<Sprite>(path);
+        if (s == null) report.Add("Couldn't load " + path + " as a sprite - crystals kept their old look.");
+        return s;
+    }
+
+    // Swaps in the crystal art at its natural size and fits the pickup collider to it.
+    static void ApplyCrystalLook(GameObject go)
+    {
+        if (crystalSprite == null) return;
+
+        var sr = go.GetComponent<SpriteRenderer>();
+        if (sr == null) sr = go.AddComponent<SpriteRenderer>();
+        sr.sprite = crystalSprite;
+        sr.color = Color.white;                 // show the art's own colours, no tint
+        sr.sortingOrder = Mathf.Max(sr.sortingOrder, 2);
+
+        go.transform.localScale = Vector3.one;
+
+        var box = go.GetComponent<BoxCollider2D>();
+        if (box != null)
+        {
+            Bounds b = crystalSprite.bounds;
+            box.size = b.size;
+            box.offset = b.center;
+        }
+        EditorUtility.SetDirty(go);
+    }
+
+    static void UpdateCrystalPrefab()
+    {
+        const string prefabPath = "Assets/Prefabs/Collectibles/EnergyCrystalPrefab.prefab";
+        if (crystalSprite == null || !File.Exists(prefabPath)) return;
+
+        GameObject root = PrefabUtility.LoadPrefabContents(prefabPath);
+        try
+        {
+            ApplyCrystalLook(root);
+            PrefabUtility.SaveAsPrefabAsset(root, prefabPath);
+        }
+        finally
+        {
+            PrefabUtility.UnloadPrefabContents(root);
+        }
     }
 
     static List<GameObject> AllObjects(Scene scene)

@@ -42,3 +42,10 @@ crashlytics-build.properties
 # OS files
 .DS_Store
 Thumbs.db
+
+# Copyrighted background music - kept on this computer only, never uploaded.
+# Without it the game plays its built-in tune.
+/Assets/Audio/Music/Resources/SpaceCadet.mp3
+/Assets/Audio/Music/Resources/SpaceCadet.mp3.meta
+/Assets/Audio/Music/SpaceCadet.mp3
+/Assets/Audio/Music/SpaceCadet.mp3.meta

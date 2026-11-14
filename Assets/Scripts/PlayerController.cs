@@ -5,6 +5,8 @@ public class PlayerController : MonoBehaviour
     [Header("Movement")]
     public float moveSpeed = 6f;
     public float jumpForce = 16f;
+    [Tooltip("0 = stop and turn instantly. Small numbers = slippery, like ice.")]
+    public float acceleration = 0f;
 
     private Rigidbody2D rb;
     private SpriteRenderer spriteRenderer;
@@ -25,7 +27,11 @@ public class PlayerController : MonoBehaviour
         if (Time.timeScale == 0f) return; // paused or level finished
 
         float move = GameInput.Horizontal();
-        rb.linearVelocity = new Vector2(move * moveSpeed, rb.linearVelocity.y);
+        float targetX = move * moveSpeed;
+        float newX = acceleration > 0f
+            ? Mathf.MoveTowards(rb.linearVelocity.x, targetX, acceleration * Time.deltaTime) // slippery (ice)
+            : targetX;                                                                         // instant
+        rb.linearVelocity = new Vector2(newX, rb.linearVelocity.y);
 
         if (spriteRenderer != null && Mathf.Abs(move) > 0.01f)
             spriteRenderer.flipX = move < 0f;

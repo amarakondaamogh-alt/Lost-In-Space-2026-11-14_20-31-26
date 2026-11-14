@@ -6,7 +6,7 @@ public class ExitShip : MonoBehaviour
     {
         if (!other.CompareTag("Player")) return;
 
-        if (GameManager.Instance.doorUnlocked)
+        if (GameManager.Instance != null && GameManager.Instance.doorUnlocked)
         {
             GameManager.Instance.WinGame();
         }
